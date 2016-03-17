@@ -37,7 +37,7 @@ type PlaylistTracks struct {
 type SimplePlaylist struct {
 	// Indicates whether the playlist owner allows others to modify the playlist.
 	// Note: only non-collaborative playlists are currently returned by Spotify's Web API.
-	Collaborative bool        `json:"collaborative"`
+	Collaborative bool              `json:"collaborative"`
 	ExternalURLs  map[string]string `json:"external_urls"`
 	// A link to the Web API endpoint providing full details of the playlist.
 	Endpoint string `json:"href"`
@@ -442,6 +442,43 @@ func (c *Client) AddTracksToPlaylist(userID string, playlistID ID,
 	}
 	spotifyURL := fmt.Sprintf("%susers/%s/playlists/%s/tracks?uris=%s",
 		baseAddress, userID, string(playlistID), strings.Join(uris, ","))
+	req, err := http.NewRequest("POST", spotifyURL, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		return "", decodeError(resp.Body)
+	}
+	body := struct {
+		SnapshotID string `json:"snapshot_id"`
+	}{}
+	err = json.NewDecoder(resp.Body).Decode(&body)
+	if err != nil {
+		// the response code indicates success..
+		return "", err
+	}
+	return body.SnapshotID, nil
+}
+
+// AddTracksToPlaylistAt adds one or more tracks to a user's playlist at the given position.  This call
+// requires authorization (ScopePlaylistModifyPublic or ScopePlaylistModifyPrivate).
+// A maximum of 100 tracks can be added per call.  It returns a snapshot ID that
+// can be used to identify this version (the new version) of the playlist in
+// future requests.
+func (c *Client) AddTracksToPlaylistAt(userID string, playlistID ID, position int,
+	trackIDs ...ID) (snapshotID string, err error) {
+
+	uris := make([]string, len(trackIDs))
+	for i, id := range trackIDs {
+		uris[i] = fmt.Sprintf("spotify:track:%s", id)
+	}
+	spotifyURL := fmt.Sprintf("%susers/%s/playlists/%s/tracks?position=%d&uris=%s",
+		baseAddress, userID, string(playlistID), position, strings.Join(uris, ","))
 	req, err := http.NewRequest("POST", spotifyURL, nil)
 	if err != nil {
 		return "", err
